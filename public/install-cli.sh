@@ -9,6 +9,7 @@ CLAWDBOT_VERSION="${CLAWDBOT_VERSION:-latest}"
 NODE_VERSION="${CLAWDBOT_NODE_VERSION:-22.12.0}"
 JSON=0
 RUN_ONBOARD=0
+SET_NPM_PREFIX=0
 
 print_usage() {
   cat <<EOF
@@ -19,6 +20,7 @@ Usage: install-cli.sh [options]
   --node-version <ver>   Node version (default: 22.12.0)
   --onboard              Run "clawdbot onboard" after install
   --no-onboard           Skip onboarding (default)
+  --set-npm-prefix       Force npm prefix to ~/.npm-global if current prefix is not writable (Linux)
 EOF
 }
 
@@ -78,6 +80,10 @@ parse_args() {
       --help|-h)
         print_usage
         exit 0
+        ;;
+      --set-npm-prefix)
+        SET_NPM_PREFIX=1
+        shift
         ;;
       *)
         fail "Unknown option: $1"
@@ -158,10 +164,45 @@ install_node() {
   emit_json "{\"event\":\"step\",\"name\":\"node\",\"status\":\"ok\",\"version\":\"${NODE_VERSION}\"}"
 }
 
+fix_npm_prefix_if_needed() {
+  # only meaningful on Linux, non-root installs
+  if [[ "$(os_detect)" != "linux" ]]; then
+    return
+  fi
+
+  local prefix
+  prefix="$("$(npm_bin)" config get prefix 2>/dev/null || true)"
+  if [[ -z "$prefix" ]]; then
+    return
+  fi
+
+  if [[ -w "$prefix" || -w "${prefix}/lib" ]]; then
+    return
+  fi
+
+  local target="${HOME}/.npm-global"
+  mkdir -p "$target"
+  "$(npm_bin)" config set prefix "$target"
+
+  local path_line="export PATH=\\\"${target}/bin:\\$PATH\\\""
+  for rc in "${HOME}/.bashrc" "${HOME}/.zshrc"; do
+    if [[ -f "$rc" ]] && ! grep -q ".npm-global" "$rc"; then
+      echo "$path_line" >> "$rc"
+    fi
+  done
+
+  export PATH="${target}/bin:${PATH}"
+  emit_json "{\"event\":\"step\",\"name\":\"npm-prefix\",\"status\":\"ok\",\"prefix\":\"${target//\"/\\\"}\"}"
+  log "Configured npm prefix to ${target}"
+}
+
 install_clawdbot() {
   emit_json "{\"event\":\"step\",\"name\":\"clawdbot\",\"status\":\"start\",\"version\":\"${CLAWDBOT_VERSION}\"}"
   log "Installing Clawdbot (${CLAWDBOT_VERSION})..."
   require_bin git
+  if [[ "$SET_NPM_PREFIX" -eq 1 ]]; then
+    fix_npm_prefix_if_needed
+  fi
   "$(npm_bin)" install -g --prefix "$PREFIX" "clawdbot@${CLAWDBOT_VERSION}"
   rm -f "${PREFIX}/bin/clawdbot"
   cat > "${PREFIX}/bin/clawdbot" <<EOF
@@ -184,9 +225,16 @@ resolve_clawdbot_version() {
 main() {
   parse_args "$@"
 
+  if [[ "${CLAWDBOT_NO_ONBOARD:-0}" == "1" ]]; then
+    RUN_ONBOARD=0
+  fi
+
   export PATH="$(node_dir)/bin:${PREFIX}/bin:${PATH}"
 
   install_node
+  if [[ "$SET_NPM_PREFIX" -eq 1 ]]; then
+    fix_npm_prefix_if_needed
+  fi
   install_clawdbot
 
   local installed_version

@@ -138,6 +138,26 @@ pick_tagline() {
 
 TAGLINE=$(pick_tagline)
 
+NO_ONBOARD=${CLAWDBOT_NO_ONBOARD:-0}
+
+parse_args() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --no-onboard)
+                NO_ONBOARD=1
+                shift
+                ;;
+            --onboard)
+                NO_ONBOARD=0
+                shift
+                ;;
+            *)
+                shift
+                ;;
+        esac
+    done
+}
+
 echo -e "${ACCENT}${BOLD}"
 echo "  🦞 Clawdbot Installer"
 echo -e "${NC}${ACCENT_DIM}  ${TAGLINE}${NC}"
@@ -225,6 +245,67 @@ install_node() {
     fi
 }
 
+# Check Git
+check_git() {
+    if command -v git &> /dev/null; then
+        echo -e "${SUCCESS}✓${NC} Git already installed"
+        return 0
+    fi
+    echo -e "${WARN}→${NC} Git not found"
+    return 1
+}
+
+install_git() {
+    echo -e "${WARN}→${NC} Installing Git..."
+    if [[ "$OS" == "macos" ]]; then
+        brew install git
+    elif [[ "$OS" == "linux" ]]; then
+        if command -v apt-get &> /dev/null; then
+            sudo apt-get update -y
+            sudo apt-get install -y git
+        elif command -v dnf &> /dev/null; then
+            sudo dnf install -y git
+        elif command -v yum &> /dev/null; then
+            sudo yum install -y git
+        else
+            echo -e "${ERROR}Error: Could not detect package manager for Git${NC}"
+            exit 1
+        fi
+    fi
+    echo -e "${SUCCESS}✓${NC} Git installed"
+}
+
+# Fix npm permissions for global installs (Linux)
+fix_npm_permissions() {
+    if [[ "$OS" != "linux" ]]; then
+        return 0
+    fi
+
+    local npm_prefix
+    npm_prefix="$(npm config get prefix 2>/dev/null || true)"
+    if [[ -z "$npm_prefix" ]]; then
+        return 0
+    fi
+
+    if [[ -w "$npm_prefix" || -w "$npm_prefix/lib" ]]; then
+        return 0
+    fi
+
+    echo -e "${WARN}→${NC} Configuring npm for user-local installs..."
+    mkdir -p "$HOME/.npm-global"
+    npm config set prefix "$HOME/.npm-global"
+
+    local path_line='export PATH="$HOME/.npm-global/bin:$PATH"'
+    for rc in "$HOME/.bashrc" "$HOME/.zshrc"; do
+        if [[ -f "$rc" ]] && ! grep -q ".npm-global" "$rc"; then
+            echo "$path_line" >> "$rc"
+        fi
+    done
+
+    export PATH="$HOME/.npm-global/bin:$PATH"
+    echo -e "${SUCCESS}✓${NC} npm configured for user installs"
+}
+
 # Check for existing Clawdbot installation
 check_existing_clawdbot() {
     if command -v clawdbot &> /dev/null; then
@@ -279,10 +360,18 @@ main() {
         install_node
     fi
 
-    # Step 3: Clawdbot
+    # Step 3: Git (required for npm installs that may fetch from git or apply patches)
+    if ! check_git; then
+        install_git
+    fi
+
+    # Step 4: npm permissions (Linux)
+    fix_npm_permissions
+
+    # Step 5: Clawdbot
     install_clawdbot
 
-    # Step 4: Run doctor for migrations if upgrading
+    # Step 6: Run doctor for migrations if upgrading
     if [[ "$is_upgrade" == "true" ]]; then
         run_doctor
     fi
@@ -301,13 +390,18 @@ main() {
     if [[ "$is_upgrade" == "true" ]]; then
         echo -e "Upgrade complete. Run ${INFO}clawdbot doctor${NC} to check for additional migrations."
     else
-        echo -e "Starting setup..."
-        echo ""
-        exec clawdbot onboard
+        if [[ "$NO_ONBOARD" == "1" ]]; then
+            echo -e "Skipping onboard (requested). Run ${INFO}clawdbot onboard${NC} later."
+        else
+            echo -e "Starting setup..."
+            echo ""
+            exec clawdbot onboard
+        fi
     fi
 
     echo ""
     echo -e "FAQ: ${INFO}https://docs.clawd.bot/start/faq${NC}"
 }
 
+parse_args "$@"
 main
