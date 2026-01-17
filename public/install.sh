@@ -824,6 +824,31 @@ resolve_clawdbot_version() {
     echo "$version"
 }
 
+is_gateway_daemon_loaded() {
+    local claw="$1"
+    if [[ -z "$claw" ]]; then
+        return 1
+    fi
+
+    local status_json=""
+    status_json="$("$claw" daemon status --json 2>/dev/null || true)"
+    if [[ -z "$status_json" ]]; then
+        return 1
+    fi
+
+    printf '%s' "$status_json" | node -e '
+const fs = require("fs");
+const raw = fs.readFileSync(0, "utf8").trim();
+if (!raw) process.exit(1);
+try {
+  const data = JSON.parse(raw);
+  process.exit(data?.service?.loaded ? 0 : 1);
+} catch {
+  process.exit(1);
+}
+' >/dev/null 2>&1
+}
+
 # Main installation flow
 main() {
     if [[ "$HELP" == "1" ]]; then
@@ -985,7 +1010,7 @@ EOF
         if [[ -z "$claw" ]]; then
             claw="$(resolve_clawdbot_bin || true)"
         fi
-        if [[ -n "$claw" ]] && "$claw" daemon status >/dev/null 2>&1; then
+        if [[ -n "$claw" ]] && is_gateway_daemon_loaded "$claw"; then
             echo -e "${INFO}i${NC} Gateway daemon detected; restart with: ${INFO}clawdbot daemon restart${NC}"
         fi
     fi
