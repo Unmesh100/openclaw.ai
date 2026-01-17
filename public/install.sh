@@ -920,12 +920,26 @@ EOF
     fi
 
     if [[ "$INSTALL_METHOD" == "git" ]]; then
+        # Clean up npm global install if switching to git
+        if npm list -g clawdbot &>/dev/null; then
+            echo -e "${WARN}→${NC} Removing npm global install (switching to git)..."
+            npm uninstall -g clawdbot 2>/dev/null || true
+            echo -e "${SUCCESS}✓${NC} npm global install removed"
+        fi
+
         local repo_dir="$GIT_DIR"
         if [[ -n "$detected_checkout" ]]; then
             repo_dir="$detected_checkout"
         fi
         install_clawdbot_from_git "$repo_dir"
     else
+        # Clean up git wrapper if switching to npm
+        if [[ -x "$HOME/.local/bin/clawdbot" ]]; then
+            echo -e "${WARN}→${NC} Removing git wrapper (switching to npm)..."
+            rm -f "$HOME/.local/bin/clawdbot"
+            echo -e "${SUCCESS}✓${NC} git wrapper removed"
+        fi
+
         # Step 3: Git (required for npm installs that may fetch from git or apply patches)
         if ! check_git; then
             install_git
