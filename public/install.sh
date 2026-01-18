@@ -48,6 +48,15 @@ run_remote_bash() {
     /bin/bash "$tmp"
 }
 
+cleanup_legacy_submodules() {
+    local repo_dir="$1"
+    local legacy_dir="$repo_dir/Peekaboo"
+    if [[ -d "$legacy_dir" ]]; then
+        echo -e "${WARN}→${NC} Removing legacy submodule checkout: ${INFO}${legacy_dir}${NC}"
+        rm -rf "$legacy_dir"
+    fi
+}
+
 TAGLINES=()
 TAGLINES+=("Your terminal just grew claws—type something and let the bot pinch the busywork.")
 TAGLINES+=("Welcome to the command line: where dreams compile and confidence segfaults.")
@@ -677,6 +686,8 @@ install_clawdbot_from_git() {
             echo -e "${WARN}→${NC} Repo is dirty; skipping git pull"
         fi
     fi
+
+    cleanup_legacy_submodules "$repo_dir"
 
     SHARP_IGNORE_GLOBAL_LIBVIPS="$SHARP_IGNORE_GLOBAL_LIBVIPS" pnpm -C "$repo_dir" install
 

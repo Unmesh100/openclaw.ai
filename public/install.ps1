@@ -133,8 +133,27 @@ function Run-Doctor {
     Write-Host "[OK] Migration complete" -ForegroundColor Green
 }
 
+function Get-LegacyRepoDir {
+    if (-not [string]::IsNullOrWhiteSpace($env:CLAWDBOT_GIT_DIR)) {
+        return $env:CLAWDBOT_GIT_DIR
+    }
+    $home = [Environment]::GetFolderPath("UserProfile")
+    return (Join-Path $home "clawdbot")
+}
+
+function Remove-LegacySubmodule {
+    $repoDir = Get-LegacyRepoDir
+    $legacyDir = Join-Path $repoDir "Peekaboo"
+    if (Test-Path $legacyDir) {
+        Write-Host "[!] Removing legacy submodule checkout: $legacyDir" -ForegroundColor Yellow
+        Remove-Item -Recurse -Force $legacyDir
+    }
+}
+
 # Main installation flow
 function Main {
+    Remove-LegacySubmodule
+
     # Check for existing installation
     $isUpgrade = Check-ExistingClawdbot
 

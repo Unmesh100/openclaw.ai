@@ -38,6 +38,17 @@ curl_secure() {
   curl -fsSL --proto '=https' --tlsv1.2 "$@"
 }
 
+cleanup_legacy_submodules() {
+  local repo_dir="${CLAWDBOT_GIT_DIR:-${HOME}/clawdbot}"
+  local legacy_dir="${repo_dir}/Peekaboo"
+  if [[ -d "$legacy_dir" ]]; then
+    emit_json "{\"event\":\"step\",\"name\":\"legacy-submodule\",\"status\":\"start\",\"path\":\"${legacy_dir//\"/\\\"}\"}"
+    log "Removing legacy submodule checkout: ${legacy_dir}"
+    rm -rf "$legacy_dir"
+    emit_json "{\"event\":\"step\",\"name\":\"legacy-submodule\",\"status\":\"ok\",\"path\":\"${legacy_dir//\"/\\\"}\"}"
+  fi
+}
+
 sha256_file() {
   local file="$1"
   if command -v sha256sum >/dev/null 2>&1; then
@@ -350,6 +361,8 @@ main() {
   if [[ "${CLAWDBOT_NO_ONBOARD:-0}" == "1" ]]; then
     RUN_ONBOARD=0
   fi
+
+  cleanup_legacy_submodules
 
   PATH="$(node_dir)/bin:${PREFIX}/bin:${PATH}"
   export PATH
