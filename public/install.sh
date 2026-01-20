@@ -620,7 +620,7 @@ warn_shell_path_missing_dir() {
 
     echo ""
     echo -e "${WARN}→${NC} PATH warning: missing ${label}: ${INFO}${dir}${NC}"
-    echo -e "This can make ${INFO}clawdbot${NC} show as “command not found” in new terminals."
+    echo -e "This can make ${INFO}clawdbot${NC} show as \"command not found\" in new terminals."
     echo -e "Fix (zsh: ~/.zshrc, bash: ~/.bashrc):"
     echo -e "  export PATH=\"${dir}:\\$PATH\""
     echo -e "Docs: ${INFO}https://docs.clawd.bot/install#nodejs--npm-path-sanity${NC}"
