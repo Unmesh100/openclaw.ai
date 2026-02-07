@@ -5,7 +5,8 @@
       "destination": "/trust",
       "has": [
         {
-          "type": "host",
+          "type": "header",
+          "key": "host",
           "value": "trust.openclaw.ai"
         }
       ]
@@ -18,7 +19,8 @@
       "permanent": true,
       "has": [
         {
-          "type": "host",
+          "type": "header",
+          "key": "host",
           "value": "clawd.bot"
         }
       ]
@@ -29,7 +31,8 @@
       "permanent": true,
       "has": [
         {
-          "type": "host",
+          "type": "header",
+          "key": "host",
           "value": "www.clawd.bot"
         }
       ]
