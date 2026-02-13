@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-02-13
+
+- Installer: render gum choose header on two lines (real newline, not literal `\n`) for checkout detection prompt (#55, thanks @echoja).
+
 ## 2026-02-10
 
 - Installer: modernize `install.sh` UX with staged progress, quieter command output, optional gum UI controls (`--gum`, `--no-gum`, `OPENCLAW_USE_GUM`, `CLAWDBOT_USE_GUM`), and verified-only temporary gum bootstrap (#50, thanks @sebslight).
