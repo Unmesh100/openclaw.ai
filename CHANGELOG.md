@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-02-22
+
+- Installer: auto-disable gum UI/spinners in non-interactive shells (`OPENCLAW_USE_GUM=auto`) to reduce `ioctl` noise in piped/SSH installs.
+- Installer: after macOS `node@22` Homebrew install, force-check active `node` major and fail with explicit PATH remediation if shell still resolves an older Node.
+- Installer: add actionable npm failure diagnostics (exact install command, installer log path, npm debug log path, first npm error line) before retries.
+- CI/Tests: expand `install.sh` unit coverage for non-interactive gum disable, macOS Node PATH activation guard, and npm diagnostics parsing/output.
+- Triage: close duplicate installer issue `openclaw/openclaw#23069` in favor of `openclaw/openclaw#23066` to keep ioctl troubleshooting centralized.
+
 ## 2026-02-13
 
 - Landing page: harden quickstart script null-safety, clipboard fallback behavior, and OS detection; remove redundant npm/pnpm lockfiles for Bun-first workflow (#37, thanks @HemantSudarshan).

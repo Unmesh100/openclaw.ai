@@ -74,8 +74,22 @@ GUM_VERSION="${OPENCLAW_GUM_VERSION:-0.17.0}"
 GUM=""
 GUM_STATUS="skipped"
 GUM_REASON=""
+LAST_NPM_INSTALL_CMD=""
+
+is_non_interactive_shell() {
+    if [[ "${NO_PROMPT:-0}" == "1" ]]; then
+        return 0
+    fi
+    if [[ ! -t 0 || ! -t 1 ]]; then
+        return 0
+    fi
+    return 1
+}
 
 gum_is_tty() {
+    if is_non_interactive_shell; then
+        return 1
+    fi
     if [[ -n "${NO_COLOR:-}" ]]; then
         return 1
     fi
@@ -127,6 +141,11 @@ bootstrap_gum_temp() {
     GUM=""
     GUM_STATUS="skipped"
     GUM_REASON=""
+
+    if [[ "$OPENCLAW_USE_GUM" == "auto" ]] && is_non_interactive_shell; then
+        GUM_REASON="non-interactive shell (auto-disabled)"
+        return 1
+    fi
 
     case "$OPENCLAW_USE_GUM" in
         0|false|False|FALSE|off|OFF|no|NO)
@@ -643,6 +662,9 @@ run_npm_global_install() {
         cmd+=("$NPM_SILENT_FLAG")
     fi
     cmd+=(--no-fund --no-audit install -g "$spec")
+    local cmd_display=""
+    printf -v cmd_display '%q ' "${cmd[@]}"
+    LAST_NPM_INSTALL_CMD="${cmd_display% }"
 
     if [[ "$VERBOSE" == "1" ]]; then
         "${cmd[@]}" 2>&1 | tee "$log"
@@ -661,6 +683,52 @@ run_npm_global_install() {
     "${cmd[@]}" >"$log" 2>&1
 }
 
+extract_npm_debug_log_path() {
+    local log="$1"
+    local path=""
+    path="$(sed -n -E 's/.*A complete log of this run can be found in:[[:space:]]*//p' "$log" | tail -n1)"
+    if [[ -n "$path" ]]; then
+        echo "$path"
+        return 0
+    fi
+
+    path="$(grep -Eo '/[^[:space:]]+_logs/[^[:space:]]+debug[^[:space:]]*\.log' "$log" | tail -n1 || true)"
+    if [[ -n "$path" ]]; then
+        echo "$path"
+        return 0
+    fi
+
+    return 1
+}
+
+extract_first_npm_error_line() {
+    local log="$1"
+    grep -E 'npm (ERR!|error)|ERR!' "$log" | head -n1 || true
+}
+
+print_npm_failure_diagnostics() {
+    local spec="$1"
+    local log="$2"
+    local debug_log=""
+    local first_error=""
+
+    ui_warn "npm install failed for ${spec}"
+    if [[ -n "${LAST_NPM_INSTALL_CMD}" ]]; then
+        echo "  Command: ${LAST_NPM_INSTALL_CMD}"
+    fi
+    echo "  Installer log: ${log}"
+
+    debug_log="$(extract_npm_debug_log_path "$log" || true)"
+    if [[ -n "$debug_log" ]]; then
+        echo "  npm debug log: ${debug_log}"
+    fi
+
+    first_error="$(extract_first_npm_error_line "$log")"
+    if [[ -n "$first_error" ]]; then
+        echo "  First npm error: ${first_error}"
+    fi
+}
+
 install_openclaw_npm() {
     local spec="$1"
     local log
@@ -675,6 +743,8 @@ install_openclaw_npm() {
                 return 0
             fi
         fi
+
+        print_npm_failure_diagnostics "$spec" "$log"
 
         if [[ "$VERBOSE" != "1" ]]; then
             if [[ "$attempted_build_tool_fix" == "true" ]]; then
@@ -1141,14 +1211,67 @@ install_homebrew() {
 }
 
 # Check Node.js version
+node_major_version() {
+    if ! command -v node &> /dev/null; then
+        return 1
+    fi
+    local version major
+    version="$(node -v 2>/dev/null || true)"
+    major="${version#v}"
+    major="${major%%.*}"
+    if [[ "$major" =~ ^[0-9]+$ ]]; then
+        echo "$major"
+        return 0
+    fi
+    return 1
+}
+
+ensure_macos_node22_active() {
+    if [[ "$OS" != "macos" ]]; then
+        return 0
+    fi
+
+    local brew_node_prefix=""
+    if command -v brew &> /dev/null; then
+        brew_node_prefix="$(brew --prefix node@22 2>/dev/null || true)"
+        if [[ -n "$brew_node_prefix" && -x "${brew_node_prefix}/bin/node" ]]; then
+            export PATH="${brew_node_prefix}/bin:$PATH"
+            refresh_shell_command_cache
+        fi
+    fi
+
+    local major=""
+    major="$(node_major_version || true)"
+    if [[ -n "$major" && "$major" -ge 22 ]]; then
+        return 0
+    fi
+
+    local active_path active_version
+    active_path="$(command -v node 2>/dev/null || echo "not found")"
+    active_version="$(node -v 2>/dev/null || echo "missing")"
+
+    ui_error "Node.js v22 was installed but this shell is using ${active_version} (${active_path})"
+    if [[ -n "$brew_node_prefix" ]]; then
+        echo "Add this to your shell profile and restart shell:"
+        echo "  export PATH=\"${brew_node_prefix}/bin:\$PATH\""
+    else
+        echo "Ensure Homebrew node@22 is first on PATH, then rerun installer."
+    fi
+    return 1
+}
+
 check_node() {
     if command -v node &> /dev/null; then
-        NODE_VERSION=$(node -v | cut -d'v' -f2 | cut -d'.' -f1)
-        if [[ "$NODE_VERSION" -ge 22 ]]; then
+        NODE_VERSION="$(node_major_version || true)"
+        if [[ -n "$NODE_VERSION" && "$NODE_VERSION" -ge 22 ]]; then
             ui_success "Node.js v$(node -v | cut -d'v' -f2) found"
             return 0
         else
-            ui_info "Node.js $(node -v) found, upgrading to v22+"
+            if [[ -n "$NODE_VERSION" ]]; then
+                ui_info "Node.js $(node -v) found, upgrading to v22+"
+            else
+                ui_info "Node.js found but version could not be parsed; reinstalling v22+"
+            fi
             return 1
         fi
     else
@@ -1163,6 +1286,9 @@ install_node() {
         ui_info "Installing Node.js via Homebrew"
         run_quiet_step "Installing node@22" brew install node@22
         brew link node@22 --overwrite --force 2>/dev/null || true
+        if ! ensure_macos_node22_active; then
+            exit 1
+        fi
         ui_success "Node.js installed"
     elif [[ "$OS" == "linux" ]]; then
         ui_info "Installing Node.js via NodeSource"

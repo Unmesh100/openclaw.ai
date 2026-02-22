@@ -24,6 +24,15 @@ assert_nonempty() {
   fi
 }
 
+assert_contains() {
+  local got="$1"
+  local want="$2"
+  local msg="${3:-}"
+  if [[ "$got" != *"$want"* ]]; then
+    fail "${msg} expected to contain=${want} got=${got}"
+  fi
+}
+
 make_exe() {
   local path="$1"
   shift || true
@@ -287,6 +296,104 @@ EOF
   if npm_log_indicates_missing_build_tools "${negative_log}"; then
     fail "npm_log_indicates_missing_build_tools false positive"
   fi
+)
+
+echo "==> case: bootstrap_gum_temp (auto disable in non-interactive shell)"
+(
+  # shellcheck disable=SC2034
+  OPENCLAW_USE_GUM=auto
+  # shellcheck disable=SC2034
+  GUM=""
+  # shellcheck disable=SC2034
+  GUM_STATUS="skipped"
+  # shellcheck disable=SC2034
+  GUM_REASON=""
+
+  is_non_interactive_shell() { return 0; }
+
+  bootstrap_gum_temp || true
+  assert_eq "$GUM" "" "bootstrap_gum_temp non-interactive gum path"
+  assert_eq "$GUM_REASON" "non-interactive shell (auto-disabled)" "bootstrap_gum_temp non-interactive reason"
+)
+
+echo "==> case: ensure_macos_node22_active (prefers Homebrew node@22 bin)"
+(
+  root="${TMP_DIR}/case-node22-path-fix"
+  old_bin="${root}/old-bin"
+  brew_bin="${root}/brew-bin"
+  node22_prefix="${root}/node22"
+  mkdir -p "${old_bin}" "${brew_bin}" "${node22_prefix}/bin"
+
+  make_exe "${old_bin}/node" 'echo "v14.18.0"'
+  make_exe "${brew_bin}/brew" "if [[ \"\${1:-}\" == \"--prefix\" && \"\${2:-}\" == \"node@22\" ]]; then echo \"${node22_prefix}\"; exit 0; fi; exit 1"
+  make_exe "${node22_prefix}/bin/node" 'echo "v22.22.0"'
+
+  export OS="macos"
+  export PATH="${old_bin}:${brew_bin}:/usr/bin:/bin"
+
+  ensure_macos_node22_active
+  got="$(node -v)"
+  assert_eq "$got" "v22.22.0" "ensure_macos_node22_active active node version"
+  got_path="$(command -v node)"
+  assert_eq "$got_path" "${node22_prefix}/bin/node" "ensure_macos_node22_active active node path"
+)
+
+echo "==> case: ensure_macos_node22_active (fails with guidance when still old node)"
+(
+  root="${TMP_DIR}/case-node22-path-fail"
+  old_bin="${root}/old-bin"
+  brew_bin="${root}/brew-bin"
+  mkdir -p "${old_bin}" "${brew_bin}"
+
+  make_exe "${old_bin}/node" 'echo "v14.18.0"'
+  make_exe "${brew_bin}/brew" "if [[ \"\${1:-}\" == \"--prefix\" && \"\${2:-}\" == \"node@22\" ]]; then echo \"${root}/missing-node22\"; exit 0; fi; exit 1"
+
+  export OS="macos"
+  export PATH="${old_bin}:${brew_bin}:/usr/bin:/bin"
+
+  out="$(ensure_macos_node22_active 2>&1 || true)"
+  assert_contains "$out" "Node.js v22 was installed but this shell is using v14.18.0" "ensure_macos_node22_active failure message"
+  assert_contains "$out" "export PATH=\"${root}/missing-node22/bin:\$PATH\"" "ensure_macos_node22_active guidance"
+)
+
+echo "==> case: npm diagnostics extractors"
+(
+  root="${TMP_DIR}/case-npm-diagnostics"
+  mkdir -p "${root}"
+  log="${root}/npm.log"
+
+  cat >"${log}" <<'EOF'
+npm error code ENOENT
+npm error syscall spawn
+npm error A complete log of this run can be found in: /Users/test/.npm/_logs/2026-02-22T17_00_00_000Z-debug-0.log
+EOF
+
+  got_log="$(extract_npm_debug_log_path "${log}")"
+  assert_eq "$got_log" "/Users/test/.npm/_logs/2026-02-22T17_00_00_000Z-debug-0.log" "extract_npm_debug_log_path"
+  got_error="$(extract_first_npm_error_line "${log}")"
+  assert_eq "$got_error" "npm error code ENOENT" "extract_first_npm_error_line"
+)
+
+echo "==> case: print_npm_failure_diagnostics"
+(
+  root="${TMP_DIR}/case-npm-diagnostics-output"
+  mkdir -p "${root}"
+  log="${root}/npm.log"
+
+  cat >"${log}" <<'EOF'
+npm ERR! code EACCES
+npm ERR! A complete log of this run can be found in: /tmp/npm-debug.log
+EOF
+
+  # shellcheck disable=SC2034
+  LAST_NPM_INSTALL_CMD='env SHARP_IGNORE_GLOBAL_LIBVIPS=1 npm --loglevel error --no-fund --no-audit install -g openclaw@latest'
+  ui_warn() { echo "WARN: $*"; }
+  out="$(print_npm_failure_diagnostics "openclaw@latest" "${log}" 2>&1)"
+
+  assert_contains "$out" "Command: env SHARP_IGNORE_GLOBAL_LIBVIPS=1 npm --loglevel error --no-fund --no-audit install -g openclaw@latest" "print_npm_failure_diagnostics command"
+  assert_contains "$out" "Installer log: ${log}" "print_npm_failure_diagnostics installer log"
+  assert_contains "$out" "npm debug log: /tmp/npm-debug.log" "print_npm_failure_diagnostics debug log"
+  assert_contains "$out" "First npm error: npm ERR! code EACCES" "print_npm_failure_diagnostics first error"
 )
 
 echo "==> case: install_openclaw_npm (auto-install build tools + retry)"
