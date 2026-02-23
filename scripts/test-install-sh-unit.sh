@@ -312,6 +312,30 @@ echo "==> case: bootstrap_gum_temp (auto disable in non-interactive shell)"
   assert_eq "$GUM_REASON" "non-interactive shell (auto-disabled)" "bootstrap_gum_temp non-interactive reason"
 )
 
+echo "==> case: print_gum_status (non-interactive skip is silent)"
+(
+  # shellcheck disable=SC2034
+  GUM_STATUS="skipped"
+  # shellcheck disable=SC2034
+  GUM_REASON="non-interactive shell (auto-disabled)"
+  ui_info() { echo "INFO: $*"; }
+
+  out="$(print_gum_status 2>&1 || true)"
+  assert_eq "$out" "" "print_gum_status non-interactive skip output"
+)
+
+echo "==> case: print_gum_status (other skip reasons still print)"
+(
+  # shellcheck disable=SC2034
+  GUM_STATUS="skipped"
+  # shellcheck disable=SC2034
+  GUM_REASON="tar not found"
+  ui_info() { echo "INFO: $*"; }
+
+  out="$(print_gum_status 2>&1 || true)"
+  assert_contains "$out" "gum skipped (tar not found)" "print_gum_status non-silent reason"
+)
+
 echo "==> case: ensure_macos_node22_active (prefers Homebrew node@22 bin)"
 (
   root="${TMP_DIR}/case-node22-path-fix"

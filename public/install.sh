@@ -222,7 +222,7 @@ print_gum_status() {
             ui_success "gum bootstrapped (${GUM_REASON}, v${GUM_VERSION})"
             ;;
         *)
-            if [[ -n "$GUM_REASON" ]]; then
+            if [[ -n "$GUM_REASON" && "$GUM_REASON" != "non-interactive shell (auto-disabled)" ]]; then
                 ui_info "gum skipped (${GUM_REASON})"
             fi
             ;;
